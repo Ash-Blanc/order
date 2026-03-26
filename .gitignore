@@ -10,3 +10,5 @@ wheels/
 .venv
 \n~/ 
 ~/.order/
+config.bat
+node_modules
