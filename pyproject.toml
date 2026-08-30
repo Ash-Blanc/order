@@ -14,6 +14,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "sqlalchemy>=2.0.48",
     "uvicorn>=0.42.0",
+    "slowapi>=0.1.9",
 ]
 
 [project.scripts]

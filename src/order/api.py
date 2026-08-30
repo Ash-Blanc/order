@@ -1,11 +1,17 @@
 """FastAPI endpoints"""
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, field_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from .core.store import store
+from .core.config import settings
 from .core.models import Commitment, CommitmentStatus, Source
 from .modes.one_thing import one_thing
 from .modes.gather import gather
@@ -14,16 +20,19 @@ from .modes.conversation import conversation
 from .modes.just_in_time import just_in_time
 from .modes.executor import executor
 
+logger = logging.getLogger(__name__)
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown"""
-    # Initialize database
     try:
         await store.init_db()
     except Exception as e:
-        print(f"DB init error: {e}")
-    
+        logger.error("DB init error: %s", e)
+
     yield
 
 
@@ -34,13 +43,20 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS — allow localhost dev origins and the configured frontend URL
+_cors_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+if getattr(settings, "frontend_url", None):
+    _cors_origins.append(settings.frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -128,6 +144,16 @@ async def get_stats():
 class ChatRequest(BaseModel):
     message: str
 
+    @field_validator("message")
+    @classmethod
+    def message_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("message must not be empty")
+        if len(v) > 2000:
+            raise ValueError("message must be 2000 characters or fewer")
+        return v
+
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
@@ -147,6 +173,16 @@ async def reset_chat():
 
 class SearchRequest(BaseModel):
     query: str
+
+    @field_validator("query")
+    @classmethod
+    def query_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("query must not be empty")
+        if len(v) > 500:
+            raise ValueError("query must be 500 characters or fewer")
+        return v
 
 
 @app.post("/api/search")

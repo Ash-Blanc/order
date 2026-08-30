@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     github_token: str = ""
     openai_api_key: str = ""
     openrouter_api_key: str = ""
+
+    # CORS — set to your deployed frontend URL in production
+    frontend_url: str = ""
     
     # Model config
     llm_model: str = "openrouter/nova-pro"
