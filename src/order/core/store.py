@@ -67,7 +67,13 @@ class Store:
     
     async def add_many(self, commitments: List[Commitment]):
         async with self.async_session() as session:
+            # Get existing platform_ids to avoid duplicates
+            result = await session.execute(select(CommitmentRow.platform_id))
+            existing_ids = {row for row in result.scalars().all()}
+
             for c in commitments:
+                if c.platform_id in existing_ids:
+                    continue
                 row = CommitmentRow(
                     id=c.id,
                     source=c.source.value,
@@ -82,6 +88,7 @@ class Store:
                     raw_data=c.raw_data
                 )
                 session.add(row)
+                existing_ids.add(c.platform_id)
             await session.commit()
     
     async def get_all(self) -> List[Commitment]:
@@ -121,6 +128,23 @@ class Store:
                 counts[row.status] = counts.get(row.status, 0) + 1
             return counts
     
+    async def expire_old(self, hours: int = 72) -> int:
+        """Mark old pending commitments as expired"""
+        from datetime import timedelta
+        from sqlalchemy import update
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(CommitmentRow)
+                .where(CommitmentRow.status == "pending")
+                .where(CommitmentRow.created_at < cutoff)
+            )
+            rows = result.scalars().all()
+            for row in rows:
+                row.status = "expired"
+            await session.commit()
+            return len(rows)
+
     def _row_to_model(self, row: CommitmentRow) -> Commitment:
         return Commitment(
             id=row.id,
