@@ -1,0 +1,9 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "bun run build",
+  "installCommand": "bun install",
+  "outputDirectory": ".next",
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://your-railway-app.up.railway.app"
+  }
+}
