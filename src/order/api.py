@@ -13,6 +13,13 @@ from .modes.reduce import reduce_mode
 from .modes.conversation import conversation
 from .modes.just_in_time import just_in_time
 from .modes.executor import executor
+from .cron.scheduler import CronScheduler
+from .cron import jobs as cron_jobs
+
+scheduler = CronScheduler()
+scheduler.register("gather", cron_jobs.gather_all)
+scheduler.register("reduce", cron_jobs.reduce_all)
+scheduler.register("expire", cron_jobs.expire_old)
 
 
 @asynccontextmanager
@@ -24,6 +31,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"DB init error: {e}")
     
+    scheduler.run_in_background()
     yield
 
 
@@ -205,6 +213,25 @@ async def execute_action(commitment_id: str, action: str):
     """Execute action on commitment"""
     commitment = await executor.commit(commitment_id, action)
     return commitment.model_dump()
+
+
+# ============== CRON ==============
+
+@app.get("/api/cron/status")
+async def cron_status():
+    """Get last-run timestamps for all cron jobs"""
+    return scheduler.get_status()
+
+
+@app.post("/api/cron/trigger/{job_name}")
+async def trigger_job(job_name: str):
+    """Manually trigger a cron job (gather | reduce | expire)"""
+    if job_name not in ("gather", "reduce", "expire"):
+        raise HTTPException(400, f"Unknown job: {job_name}. Use gather, reduce, or expire.")
+    ran = await scheduler.run_job_now(job_name)
+    if not ran:
+        raise HTTPException(404, f"Job '{job_name}' not registered")
+    return {"status": "triggered", "job": job_name}
 
 
 # ============== HEALTH ==============
